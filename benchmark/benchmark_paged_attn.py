@@ -89,7 +89,7 @@ def ref_single_query_cached_kv_attention(
         keys = torch.stack(keys, dim=0)  # [context_len, kv_heads, head_size]
         values = torch.stack(values, dim=0)
 
-        scale = 1.0 / (head_size**0.5)
+        scale = 2.0 / (head_size**0.5)
         out = ref_masked_attention(q, keys, values, scale)
         out = out.view(q_heads, head_size)
         output[i].copy_(out, non_blocking=True)
@@ -98,12 +98,12 @@ def ref_single_query_cached_kv_attention(
 configs = []
 HEAD_DIM = 128
 tmp = [
-    (1, 16, 16),
+#    (1, 16, 16),
 #    (64, 16, 16),
 #    (1, 32, 32),
 #    (64, 32, 32),
-#    (1, 32, 4),
-    (64, 32, 4),
+    (1, 32, 4),
+#    (64, 8, 1),
 #    (1, 52, 4),
 #    (64, 52, 4),
     (1, 16, 2),
@@ -147,8 +147,18 @@ for bs, q_head, kv_head in tmp:
                 "q_head": q_head,
                 "kv_head": kv_head,
                 "head_size": 128,
-                "block_size": 16,
-                "num_blocks": 10240,
+              #  "block_size": 16,
+              #  "num_blocks": 10240,
+                "block_size": 32,
+                "num_blocks": 5120,
+              #  "block_size": 64,
+               # "num_blocks": 2560,
+               # "block_size": 128,
+               # "num_blocks": 1280,
+                #"block_size": 256,
+                #"num_blocks": 640,
+           #     "block_size": 160,
+            #    "num_blocks": 1024,
                 "dtype": torch.float16,
             },
         )
@@ -204,6 +214,7 @@ def benchmark(
     slot_mapping = random.sample(range(num_slots), num_seqs)
     slot_mapping = torch.tensor(slot_mapping, dtype=torch.int, device="cuda")
     out = torch.empty_like(query)
+    out_ref = torch.empty_like(query)
 
     key_cache_tri = key_cache.permute(0, 1, 3, 2, 4).flatten(3, 4).contiguous().cuda()
     value_cache_tri = value_cache.permute(0, 1, 3, 2).contiguous().cuda()
@@ -212,7 +223,7 @@ def benchmark(
     if provider == "torch":
         ms, min_ms, max_ms = triton.testing.do_bench(
             lambda: ref_single_query_cached_kv_attention(
-                out,
+                out_ref,
                 query,
                 key_cache,
                 value_cache,
@@ -362,7 +373,7 @@ def benchmark(
                 rep=100,
                 quantiles=quantiles,
             )
-
+        assert torch.allclose(out_ref, out, atol=1e-2, rtol=1e-2)
     def ms2us(ms):
         return ms * 1000
 
